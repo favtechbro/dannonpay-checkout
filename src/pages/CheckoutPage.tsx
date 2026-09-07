@@ -4,6 +4,7 @@ import {
   ApiError,
   checkoutApi,
   type CheckoutSessionView,
+  type ChosenMethod,
   type NextAction,
   type PaymentChannel,
 } from '@/lib/api';
@@ -14,18 +15,27 @@ import { CheckoutShell } from '@/components/CheckoutShell';
 import { MethodSelector } from '@/components/MethodSelector';
 import { TransferPanel } from '@/components/TransferPanel';
 import { MobileMoneyForm } from '@/components/MobileMoneyForm';
+import { CardForm } from '@/components/CardForm';
 import { AuthPrompt } from '@/components/AuthPrompt';
 import { StatusPanel } from '@/components/StatusPanel';
+import { MethodSkeleton } from '@/components/Skeleton';
+import { EmptyState } from '@/components/EmptyState';
 
 type Stage =
   | { name: 'loading' }
-  | { name: 'unavailable'; message: string }
+  | { name: 'unavailable'; title: string; detail: string }
   | { name: 'choosing' }
   | { name: 'mobile-money' }
+  | { name: 'card' }
   | { name: 'acting'; action: NextAction }
+  | { name: 'confirming' }
   | { name: 'settled'; tone: 'success' | 'failed'; headline: string; detail: string };
 
-const REDIRECT_DELAY_MS = 1200;
+const REDIRECT_DELAY_MS = 1400;
+const EXPIRED = {
+  title: 'This payment page has expired',
+  detail: 'Ask the merchant for a fresh link and try again.',
+};
 
 interface CheckoutPageProps {
   mode: 'hosted' | 'embedded';
@@ -43,7 +53,11 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
   const announcedSuccess = useRef(false);
 
   const watching =
-    stage.name === 'acting' || stage.name === 'choosing' || stage.name === 'mobile-money';
+    stage.name === 'acting' ||
+    stage.name === 'confirming' ||
+    stage.name === 'choosing' ||
+    stage.name === 'mobile-money' ||
+    stage.name === 'card';
   const liveStatus = useSessionStatus(code, watching);
 
   useEffect(() => {
@@ -54,7 +68,7 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
         if (cancelled) return;
         setSession(view);
         applyBrandColor(view.merchant.brandColor);
-        document.title = `Pay ${view.merchant.name}`;
+        document.title = `Pay ${view.merchant.name} · Dannon Pay`;
         if (view.status === 'completed') {
           setStage({
             name: 'settled',
@@ -64,14 +78,20 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
           });
           return;
         }
-        if (view.status === 'expired' || view.status === 'abandoned') {
+        if (view.status === 'expired') {
+          setStage({ name: 'unavailable', ...EXPIRED });
+          return;
+        }
+        if (view.status === 'abandoned') {
           setStage({
             name: 'unavailable',
-            message:
-              view.status === 'expired'
-                ? 'This payment page has expired. Ask the merchant for a new link.'
-                : 'This payment was cancelled.',
+            title: 'This payment was cancelled',
+            detail: 'Start again from the merchant if you still want to pay.',
           });
+          return;
+        }
+        if (view.status === 'processing' && view.nextAction.kind !== 'none') {
+          setStage({ name: 'acting', action: view.nextAction });
           return;
         }
         setStage({ name: 'choosing' });
@@ -80,10 +100,14 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
         if (cancelled) return;
         setStage({
           name: 'unavailable',
-          message:
+          title:
             error instanceof ApiError && error.status === 404
-              ? 'We could not find this payment page.'
-              : 'We could not load this payment page. Please try again.',
+              ? 'We could not find this payment'
+              : 'We could not load this payment',
+          detail:
+            error instanceof ApiError && error.status === 404
+              ? 'The link may be incomplete or no longer valid.'
+              : 'Please check your connection and try again.',
         });
         bridge.error('session_unavailable');
       });
@@ -98,8 +122,7 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
 
   useEffect(() => {
     if (!embedded) return;
-    const report = () =>
-      bridge.resize(document.documentElement.scrollHeight);
+    const report = () => bridge.resize(document.body.scrollHeight + 8);
     report();
     const observer = new ResizeObserver(report);
     observer.observe(document.documentElement);
@@ -114,12 +137,12 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
   // server last confirmed.
   useEffect(() => {
     if (!liveStatus) return;
-    if (liveStatus.status === 'completed') {
+    if (liveStatus.status === 'completed' || liveStatus.paymentStatus === 'SUCCEEDED') {
       setStage({
         name: 'settled',
         tone: 'success',
         headline: 'Payment received',
-        detail: 'Thank you. Your payment is confirmed.',
+        detail: 'Thank you. Your payment is confirmed and a receipt is on its way.',
       });
       if (!announcedSuccess.current && liveStatus.reference) {
         announcedSuccess.current = true;
@@ -132,22 +155,24 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
       return;
     }
     if (liveStatus.status === 'expired') {
-      setStage({
-        name: 'unavailable',
-        message: 'This payment page has expired. Ask the merchant for a new link.',
-      });
+      setStage({ name: 'unavailable', ...EXPIRED });
       return;
     }
-    if (
-      liveStatus.paymentStatus === 'FAILED' ||
-      liveStatus.paymentStatus === 'ABANDONED'
-    ) {
+    if (liveStatus.paymentStatus === 'FAILED' || liveStatus.paymentStatus === 'ABANDONED') {
       setStage({
         name: 'settled',
         tone: 'failed',
         headline: 'Payment not completed',
         detail: 'Nothing was charged. You can try again with another method.',
       });
+      return;
+    }
+    if (liveStatus.nextAction.kind.startsWith('send_')) {
+      setStage((current) =>
+        current.name === 'acting' && current.action.kind === liveStatus.nextAction.kind
+          ? current
+          : { name: 'acting', action: liveStatus.nextAction },
+      );
     }
   }, [liveStatus, embedded]);
 
@@ -157,24 +182,18 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
       return;
     }
     if (action.kind === 'none') {
-      setStage({
-        name: 'acting',
-        action: { kind: 'pay_offline', displayText: 'Confirming your payment…' },
-      });
+      setStage({ name: 'confirming' });
       return;
     }
     setStage({ name: 'acting', action });
   }, []);
 
   const startMethod = useCallback(
-    async (channel: PaymentChannel, extra?: { network: string; phone: string }) => {
+    async (method: ChosenMethod) => {
       setBusy(true);
       setNotice(null);
       try {
-        const charge = await checkoutApi.pay(code, {
-          channel,
-          ...(extra ?? {}),
-        });
+        const charge = await checkoutApi.pay(code, { method });
         applyAction(charge.nextAction);
       } catch (error) {
         setNotice(
@@ -195,9 +214,16 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
         setStage({ name: 'mobile-money' });
         return;
       }
-      void startMethod(channel);
+      const inlineCard =
+        channel === 'card' &&
+        session?.methods.find((m) => m.channel === 'card')?.entry === 'inline';
+      if (inlineCard) {
+        setStage({ name: 'card' });
+        return;
+      }
+      void startMethod({ type: channel as ChosenMethod['type'] });
     },
-    [startMethod],
+    [session, startMethod],
   );
 
   const submitValue = useCallback(
@@ -228,41 +254,36 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
     }
   }, [code, embedded, session?.cancelUrl]);
 
-  if (stage.name === 'loading') {
+  if (stage.name === 'unavailable') {
+    return <EmptyState title={stage.title} detail={stage.detail} />;
+  }
+
+  if (stage.name === 'loading' || !session) {
     return (
-      <div className="min-h-screen grid place-items-center bg-canvas">
-        <p role="status" className="text-[14px] text-muted">
-          Loading your payment…
+      <CheckoutShell
+        merchant={{ name: ' ', logoUrl: null }}
+        amountMinor="0"
+        currency="   "
+        description={null}
+        embedded={embedded}
+      >
+        <p className="sr-only" role="status">
+          Loading your payment
         </p>
-      </div>
+        <MethodSkeleton />
+      </CheckoutShell>
     );
   }
 
-  if (stage.name === 'unavailable' || !session) {
-    return (
-      <div className="min-h-screen grid place-items-center bg-canvas px-4">
-        <div className="max-w-[420px] text-center">
-          <h1 className="text-[18px] font-semibold">Payment unavailable</h1>
-          <p className="mt-2 text-[14px] text-muted">
-            {stage.name === 'unavailable'
-              ? stage.message
-              : 'We could not load this payment page.'}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const networks =
-    session.methods.find((m) => m.channel === 'mobile_money')?.networks ?? [];
+  const networks = session.methods.find((m) => m.channel === 'mobile_money')?.networks ?? [];
 
   return (
     <CheckoutShell
-      merchantName={session.merchant.name}
-      merchantLogoUrl={session.merchant.logoUrl}
+      merchant={session.merchant}
       amountMinor={session.amountMinor}
       currency={session.currency}
       description={session.description}
+      customerEmail={session.customerEmail}
       embedded={embedded}
       onClose={close}
     >
@@ -270,17 +291,24 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
         {notice && (
           <p
             role="alert"
-            className="mb-4 rounded-xl border border-danger/30 bg-danger/5 px-3.5 py-3 text-[13px] text-danger"
+            className="mb-5 flex gap-3 rounded-control border border-danger/20 bg-[#FBEAEA] px-4 py-3 text-[13px] font-medium text-danger animate-rise"
           >
+            <span aria-hidden="true" className="mt-0.5 shrink-0 w-4 h-4 rounded-full bg-danger text-white text-[11px] font-bold grid place-items-center">
+              !
+            </span>
             {notice}
           </p>
         )}
 
         {stage.name === 'choosing' && (
-          <MethodSelector
-            methods={session.methods}
+          <MethodSelector methods={session.methods} busy={busy} onChoose={choose} />
+        )}
+
+        {stage.name === 'card' && (
+          <CardForm
             busy={busy}
-            onChoose={choose}
+            onSubmit={(card) => void startMethod({ type: 'card', card })}
+            onBack={() => setStage({ name: 'choosing' })}
           />
         )}
 
@@ -289,41 +317,43 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
             networks={networks}
             busy={busy}
             onSubmit={(network, phone) =>
-              void startMethod('mobile_money', { network, phone })
+              void startMethod({ type: 'mobile_money', mobileMoney: { network, phone } })
             }
             onBack={() => setStage({ name: 'choosing' })}
           />
         )}
 
-        {stage.name === 'acting' && stage.action.kind === 'display_account' &&
-          stage.action.account && (
-            <TransferPanel
-              account={stage.action.account}
-              onExpired={() => setStage({ name: 'choosing' })}
-            />
-          )}
+        {stage.name === 'acting' && stage.action.kind === 'display_account' && stage.action.account && (
+          <TransferPanel
+            account={stage.action.account}
+            onExpired={() => setStage({ name: 'choosing' })}
+          />
+        )}
 
         {stage.name === 'acting' && stage.action.kind === 'pay_offline' && (
           <StatusPanel
             tone="pending"
-            headline="Waiting for your approval"
-            detail={
-              stage.action.displayText ??
-              'Approve the payment prompt on your phone to finish.'
-            }
+            headline="Approve on your phone"
+            detail={stage.action.displayText ?? 'A prompt is on its way. Approve it with your wallet PIN to finish.'}
           />
         )}
 
-        {stage.name === 'acting' &&
-          stage.action.kind.startsWith('send_') &&
-          stage.action.field && (
-            <AuthPrompt
-              field={stage.action.field}
-              displayText={stage.action.displayText}
-              busy={busy}
-              onSubmit={(value) => void submitValue(stage.action.field!, value)}
-            />
-          )}
+        {stage.name === 'confirming' && (
+          <StatusPanel
+            tone="pending"
+            headline="Confirming your payment"
+            detail="Your bank is releasing the payment. This usually takes a few seconds."
+          />
+        )}
+
+        {stage.name === 'acting' && stage.action.kind.startsWith('send_') && stage.action.field && (
+          <AuthPrompt
+            field={stage.action.field}
+            displayText={stage.action.displayText}
+            busy={busy}
+            onSubmit={(value) => void submitValue(stage.action.field!, value)}
+          />
+        )}
 
         {stage.name === 'settled' && (
           <StatusPanel

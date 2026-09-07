@@ -2,6 +2,10 @@ import { useEffect, useId, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ApiError, checkoutApi, type PaymentLinkView } from '@/lib/api';
 import { formatAmount } from '@/lib/format';
+import { CheckoutShell } from '@/components/CheckoutShell';
+import { EmptyState } from '@/components/EmptyState';
+import { MethodSkeleton } from '@/components/Skeleton';
+import { ChevronIcon, Spinner } from '@/components/icons';
 
 export function PaymentLinkPage() {
   const { slug = '' } = useParams<{ slug: string }>();
@@ -12,7 +16,7 @@ export function PaymentLinkPage() {
   const errorId = useId();
 
   const [link, setLink] = useState<PaymentLinkView | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ title: string; detail: string } | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -27,14 +31,14 @@ export function PaymentLinkPage() {
       .then((view) => {
         if (cancelled) return;
         setLink(view);
-        document.title = view.title;
+        document.title = `${view.title} · ${view.merchantName}`;
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
         setLoadError(
           cause instanceof ApiError && cause.status === 404
-            ? 'We could not find this payment link.'
-            : 'We could not load this payment link.',
+            ? { title: 'We could not find this link', detail: 'It may have been removed or typed incorrectly.' }
+            : { title: 'We could not load this link', detail: 'Please check your connection and try again.' },
         );
       });
     return () => {
@@ -46,14 +50,13 @@ export function PaymentLinkPage() {
     event.preventDefault();
     if (!link) return;
     if (!name.trim() || !email.trim()) {
-      setError('Enter your name and email so the merchant can reach you.');
+      setError('Enter your name and email so the merchant can send your receipt.');
       return;
     }
     if (!link.amountMinor && !amount.trim()) {
       setError('Enter the amount you want to pay.');
       return;
     }
-
     setBusy(true);
     setError(null);
     try {
@@ -74,149 +77,134 @@ export function PaymentLinkPage() {
     }
   };
 
-  if (loadError) {
-    return (
-      <div className="min-h-screen grid place-items-center bg-canvas px-4">
-        <div className="max-w-[420px] text-center">
-          <h1 className="text-[18px] font-semibold">Link unavailable</h1>
-          <p className="mt-2 text-[14px] text-muted">{loadError}</p>
-        </div>
-      </div>
-    );
-  }
+  if (loadError) return <EmptyState title={loadError.title} detail={loadError.detail} />;
 
   if (!link) {
     return (
-      <div className="min-h-screen grid place-items-center bg-canvas">
-        <p role="status" className="text-[14px] text-muted">
-          Loading…
-        </p>
-      </div>
+      <CheckoutShell
+        merchant={{ name: ' ', logoUrl: null }}
+        amountMinor="0"
+        currency="   "
+        description={null}
+        embedded={false}
+      >
+        <MethodSkeleton />
+      </CheckoutShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-canvas flex items-start justify-center px-4 py-6 sm:py-12">
-      <main className="w-full max-w-[460px] rounded-2xl bg-surface border border-line shadow-[0_1px_2px_rgba(16,24,40,0.06),0_12px_32px_-12px_rgba(16,24,40,0.18)] overflow-hidden">
-        <header className="px-5 sm:px-6 pt-6 pb-5 border-b border-line">
-          <div className="flex items-center gap-3">
-            {link.merchantLogoUrl ? (
-              <img
-                src={link.merchantLogoUrl}
-                alt=""
-                className="w-10 h-10 rounded-lg object-cover border border-line"
+    <CheckoutShell
+      merchant={{ name: link.merchantName, logoUrl: link.merchantLogoUrl }}
+      amountMinor={link.amountMinor ?? '0'}
+      currency={link.currency}
+      description={link.title}
+      embedded={false}
+    >
+      {!link.acceptingPayments ? (
+        <div role="status" className="rounded-card border border-line bg-surface p-6 animate-rise">
+          <p className="text-[15px] font-semibold">This link is not taking payments</p>
+          <p className="mt-1 text-[13px] text-body">
+            {link.unavailableReason ?? 'Ask the merchant for a new one.'}
+          </p>
+        </div>
+      ) : (
+        <form onSubmit={(event) => void submit(event)} noValidate className="animate-rise">
+          <h2 className="text-[20px] font-extrabold tracking-[-0.02em]">Your details</h2>
+          <p className="mt-1 text-[13px] text-body">
+            {link.description ?? 'We only use these to send your receipt.'}
+          </p>
+
+          <div className="mt-5 space-y-4">
+            <div>
+              <label className="field-label" htmlFor={nameId}>
+                Full name
+              </label>
+              <input
+                id={nameId}
+                className="field-input"
+                autoComplete="name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
               />
-            ) : null}
-            <div className="min-w-0">
-              <p className="text-[13px] text-muted">{link.merchantName}</p>
-              <h1 className="text-[18px] font-semibold truncate">
-                {link.title}
-              </h1>
             </div>
-          </div>
-          {link.description && (
-            <p className="mt-3 text-[14px] text-muted">{link.description}</p>
-          )}
-          {link.amountMinor && (
-            <p className="mt-3 text-[24px] font-bold tracking-tight">
-              {formatAmount(link.amountMinor, link.currency)}
-            </p>
-          )}
-        </header>
 
-        <div className="px-5 sm:px-6 py-6">
-          {!link.acceptingPayments ? (
-            <p role="status" className="text-[14px] text-muted">
-              {link.unavailableReason ??
-                'This link is not accepting payments right now.'}
-            </p>
-          ) : (
-            <form onSubmit={(event) => void submit(event)} noValidate>
+            <div>
+              <label className="field-label" htmlFor={emailId}>
+                Email
+              </label>
+              <input
+                id={emailId}
+                className="field-input"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </div>
+
+            {link.collectPhone && (
               <div>
-                <label className="field-label" htmlFor={nameId}>
-                  Full name
+                <label className="field-label" htmlFor={phoneId}>
+                  Phone number
                 </label>
                 <input
-                  id={nameId}
-                  className="field-input"
-                  autoComplete="name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  id={phoneId}
+                  className="field-input tabular"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
                 />
               </div>
+            )}
 
-              <div className="mt-4">
-                <label className="field-label" htmlFor={emailId}>
-                  Email
+            {!link.amountMinor && (
+              <div>
+                <label className="field-label" htmlFor={amountId}>
+                  Amount
                 </label>
-                <input
-                  id={emailId}
-                  className="field-input"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </div>
-
-              {link.collectPhone && (
-                <div className="mt-4">
-                  <label className="field-label" htmlFor={phoneId}>
-                    Phone number
-                  </label>
-                  <input
-                    id={phoneId}
-                    className="field-input"
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
-                  />
-                </div>
-              )}
-
-              {!link.amountMinor && (
-                <div className="mt-4">
-                  <label className="field-label" htmlFor={amountId}>
-                    Amount ({link.currency})
-                  </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-4 grid place-items-center text-[14px] font-semibold text-muted">
+                    {link.currency}
+                  </span>
                   <input
                     id={amountId}
-                    className="field-input"
+                    className="field-input tabular pl-16"
                     inputMode="decimal"
                     placeholder="0.00"
                     value={amount}
                     onChange={(event) => setAmount(event.target.value)}
                   />
-                  {link.minAmountMinor && (
-                    <p className="mt-1.5 text-[13px] text-muted">
-                      Minimum {formatAmount(link.minAmountMinor, link.currency)}
-                    </p>
-                  )}
                 </div>
-              )}
+                {(link.minAmountMinor || link.maxAmountMinor) && (
+                  <p className="mt-2 text-[12px] text-muted">
+                    {link.minAmountMinor && `From ${formatAmount(link.minAmountMinor, link.currency)}`}
+                    {link.minAmountMinor && link.maxAmountMinor && ' · '}
+                    {link.maxAmountMinor && `Up to ${formatAmount(link.maxAmountMinor, link.currency)}`}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
-              {error && (
-                <p id={errorId} role="alert" className="mt-4 text-[13px] text-danger">
-                  {error}
-                </p>
-              )}
-
-              <button type="submit" className="primary-button mt-5" disabled={busy}>
-                {busy ? 'Opening checkout…' : 'Continue to payment'}
-              </button>
-            </form>
+          {error && (
+            <p id={errorId} role="alert" className="mt-4 text-[13px] font-medium text-danger">
+              {error}
+            </p>
           )}
-        </div>
 
-        <footer className="px-5 sm:px-6 pb-6">
-          <p className="text-[12px] text-muted text-center">
-            Secured by Dannon Pay
-          </p>
-        </footer>
-      </main>
-    </div>
+          <button type="submit" className="primary-button mt-6" disabled={busy}>
+            <span className="inline-flex items-center justify-center gap-2">
+              {busy ? <Spinner size={18} /> : null}
+              {busy ? 'Opening checkout' : 'Continue to payment'}
+              {!busy && <ChevronIcon size={16} />}
+            </span>
+          </button>
+        </form>
+      )}
+    </CheckoutShell>
   );
 }

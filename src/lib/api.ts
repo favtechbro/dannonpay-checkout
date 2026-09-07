@@ -53,6 +53,29 @@ export interface MobileMoneyNetwork {
 export interface CheckoutMethod {
   channel: PaymentChannel;
   networks: MobileMoneyNetwork[];
+  entry?: 'redirect' | 'inline';
+}
+
+export interface CardDetails {
+  number: string;
+  cvv: string;
+  expiryMonth: string;
+  expiryYear: string;
+}
+
+export interface TestCard {
+  number: string;
+  brand: string;
+  outcome: string;
+  title: string;
+  detail: string;
+}
+
+export interface TestCards {
+  cards: TestCard[];
+  pin: string;
+  otp: string;
+  note: string;
 }
 
 export interface CheckoutSessionView {
@@ -67,8 +90,18 @@ export interface CheckoutSessionView {
   merchant: { name: string; logoUrl: string | null; brandColor: string | null };
   methods: CheckoutMethod[];
   reference: string | null;
+  paymentStatus: string | null;
+  nextAction: NextAction;
   successUrl: string | null;
   cancelUrl: string | null;
+}
+
+export type ChargeMethodType = 'card' | 'bank_transfer' | 'mobile_money';
+
+export interface ChosenMethod {
+  type: ChargeMethodType;
+  mobileMoney?: { network: string; phone: string };
+  card?: CardDetails;
 }
 
 export interface ChargeView {
@@ -146,13 +179,7 @@ export const checkoutApi = {
 
   pay: (
     code: string,
-    payload: {
-      channel: PaymentChannel;
-      network?: string;
-      phone?: string;
-      email?: string;
-      name?: string;
-    },
+    payload: { method: ChosenMethod; email?: string; name?: string },
   ) =>
     request<ChargeView>(`/checkout/${encodeURIComponent(code)}/pay`, {
       method: 'POST',
@@ -178,6 +205,8 @@ export const checkoutApi = {
 
   eventsUrl: (code: string) =>
     `${API_BASE}/checkout/${encodeURIComponent(code)}/events`,
+
+  testCards: () => request<TestCards>('/sandbox/test-cards'),
 
   link: (slug: string) =>
     request<PaymentLinkView>(`/pay/${encodeURIComponent(slug)}`),

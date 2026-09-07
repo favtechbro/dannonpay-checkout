@@ -4,59 +4,104 @@
 
 @layer base {
   :root {
-    --brand: #07834b;
-    --brand-strong: #05623a;
-    --brand-ink: #ffffff;
+    --accent: #005ee6;
+    --accent-strong: #004bb8;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(0, 94, 230, 0.16);
   }
 
   html {
     -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
   }
 
   body {
     @apply bg-canvas text-ink font-sans antialiased;
     margin: 0;
+    font-feature-settings: 'ss01', 'cv11';
   }
 
   :focus-visible {
-    outline: 3px solid var(--brand);
-    outline-offset: 2px;
-    border-radius: 4px;
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
   }
 }
 
 @layer components {
   .field-label {
-    @apply block text-[13px] font-medium text-ink mb-1.5;
+    @apply block text-[13px] font-semibold text-ink mb-2;
   }
 
   .field-input {
-    @apply w-full h-12 px-3.5 rounded-xl border border-line bg-surface text-[15px]
-      placeholder:text-muted/70 outline-none transition-colors;
+    @apply w-full h-[52px] px-4 rounded-control border border-line bg-surface text-[15px] font-medium
+      text-ink placeholder:text-muted placeholder:font-normal transition-[border-color,box-shadow] duration-150;
+  }
+
+  .field-input:hover {
+    @apply border-[#CBD2DA];
   }
 
   .field-input:focus {
-    border-color: var(--brand);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+    outline: none;
   }
 
   .field-input[aria-invalid='true'] {
     @apply border-danger;
+    box-shadow: 0 0 0 4px rgba(183, 28, 28, 0.12);
   }
 
   .primary-button {
-    @apply w-full h-12 rounded-xl text-[15px] font-semibold transition-opacity
-      disabled:opacity-60 disabled:cursor-not-allowed;
-    background: var(--brand);
-    color: var(--brand-ink);
+    @apply relative w-full h-[52px] rounded-control text-[15px] font-bold tracking-[-0.01em]
+      transition-[transform,background-color,box-shadow] duration-150 disabled:cursor-not-allowed;
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 8px 20px -10px var(--accent);
   }
 
   .primary-button:not(:disabled):hover {
-    background: var(--brand-strong);
+    background: var(--accent-strong);
+  }
+
+  .primary-button:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
+  .primary-button:disabled {
+    opacity: 0.55;
+    box-shadow: none;
   }
 
   .quiet-button {
-    @apply h-11 px-4 rounded-xl border border-line bg-surface text-[14px] font-medium
-      text-ink transition-colors hover:bg-canvas;
+    @apply inline-flex items-center justify-center gap-2 h-11 px-4 rounded-control border border-line
+      bg-surface text-[14px] font-semibold text-ink transition-colors duration-150 hover:bg-canvas
+      hover:border-[#CBD2DA];
+  }
+
+  .text-button {
+    @apply inline-flex items-center justify-center gap-1.5 h-11 px-3 text-[14px] font-semibold
+      text-body transition-colors hover:text-ink;
+  }
+
+  .skeleton {
+    @apply rounded-lg;
+    background: linear-gradient(90deg, #eef1f4 0%, #f7f9fb 40%, #eef1f4 80%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
 

@@ -1,4 +1,5 @@
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+const DEFAULT = '#005EE6';
 
 function expand(hex: string): [number, number, number] {
   const value = hex.slice(1);
@@ -36,28 +37,25 @@ function contrastWith(rgb: [number, number, number], other: number): number {
 }
 
 function darken(rgb: [number, number, number], amount: number): string {
-  const [r, g, b] = rgb.map((c) => Math.round(c * (1 - amount)));
-  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+  return `#${rgb
+    .map((c) => Math.round(c * (1 - amount)).toString(16).padStart(2, '0'))
+    .join('')}`;
 }
 
 /**
- * Applies a merchant's colour to the page. Text on top is chosen by measured
- * contrast, so a pale brand colour never leaves an unreadable button behind.
+ * A merchant's colour drives the action colour of the page. Text on top is
+ * chosen by measured contrast, and the Dannon Pay frame around it never
+ * changes, so a pale or loud brand colour cannot break the page.
  */
 export function applyBrandColor(color: string | null): void {
-  const root = document.documentElement;
-  if (!color || !HEX.test(color)) {
-    root.style.removeProperty('--brand');
-    root.style.removeProperty('--brand-strong');
-    root.style.removeProperty('--brand-ink');
-    return;
-  }
-
-  const rgb = expand(color);
+  const chosen = color && HEX.test(color) ? color : DEFAULT;
+  const rgb = expand(chosen);
   const onWhite = contrastWith(rgb, relativeLuminance([255, 255, 255]));
-  const onBlack = contrastWith(rgb, relativeLuminance([0, 0, 0]));
+  const onInk = contrastWith(rgb, relativeLuminance([33, 33, 33]));
+  const root = document.documentElement.style;
 
-  root.style.setProperty('--brand', color);
-  root.style.setProperty('--brand-strong', darken(rgb, 0.18));
-  root.style.setProperty('--brand-ink', onWhite >= onBlack ? '#ffffff' : '#101828');
+  root.setProperty('--accent', chosen);
+  root.setProperty('--accent-strong', darken(rgb, 0.16));
+  root.setProperty('--accent-ink', onWhite >= onInk ? '#ffffff' : '#212121');
+  root.setProperty('--accent-soft', `rgba(${rgb.join(', ')}, 0.16)`);
 }
