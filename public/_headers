@@ -1,0 +1,23 @@
+# Baseline security headers for the checkout origin. Path rules are applied by
+# the CDN in order, most specific last.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.dannonpay.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(self)
+  Cache-Control: no-store
+
+# The popup is meant to be framed. The edge replaces this with the merchant's
+# registered domains for the session; the wildcard below is the fallback for
+# merchants who have not restricted theirs.
+/embed/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.dannonpay.com; frame-ancestors https:; base-uri 'none'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin
+  Cache-Control: no-store
+
+# The inline SDK is a public asset served from this origin.
+/dannon.js
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *

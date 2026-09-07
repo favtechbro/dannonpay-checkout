@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand: #07834b;
+    --brand-strong: #05623a;
+    --brand-ink: #ffffff;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .field-label {
+    @apply block text-[13px] font-medium text-ink mb-1.5;
+  }
+
+  .field-input {
+    @apply w-full h-12 px-3.5 rounded-xl border border-line bg-surface text-[15px]
+      placeholder:text-muted/70 outline-none transition-colors;
+  }
+
+  .field-input:focus {
+    border-color: var(--brand);
+  }
+
+  .field-input[aria-invalid='true'] {
+    @apply border-danger;
+  }
+
+  .primary-button {
+    @apply w-full h-12 rounded-xl text-[15px] font-semibold transition-opacity
+      disabled:opacity-60 disabled:cursor-not-allowed;
+    background: var(--brand);
+    color: var(--brand-ink);
+  }
+
+  .primary-button:not(:disabled):hover {
+    background: var(--brand-strong);
+  }
+
+  .quiet-button {
+    @apply h-11 px-4 rounded-xl border border-line bg-surface text-[14px] font-medium
+      text-ink transition-colors hover:bg-canvas;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
