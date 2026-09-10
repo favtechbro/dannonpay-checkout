@@ -32,6 +32,9 @@ type Stage =
   | { name: 'settled'; tone: 'success' | 'failed'; headline: string; detail: string };
 
 const REDIRECT_DELAY_MS = 1400;
+// Long enough for the customer to read the confirmation before the overlay
+// hands the page back to the merchant.
+const EMBED_CLOSE_DELAY_MS = 2200;
 const EXPIRED = {
   title: 'This payment page has expired',
   detail: 'Ask the merchant for a fresh link and try again.',
@@ -147,7 +150,12 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
       if (!announcedSuccess.current && liveStatus.reference) {
         announcedSuccess.current = true;
         bridge.success(liveStatus.reference);
-        if (!embedded && liveStatus.successUrl) {
+        if (embedded) {
+          // The merchant's own confirmation is behind this overlay, so it
+          // dismisses itself once the customer has seen the receipt. Closing
+          // here must not cancel: the payment is already done.
+          window.setTimeout(() => bridge.close(), EMBED_CLOSE_DELAY_MS);
+        } else if (liveStatus.successUrl) {
           const target = liveStatus.successUrl;
           window.setTimeout(() => window.location.assign(target), REDIRECT_DELAY_MS);
         }
@@ -247,7 +255,11 @@ export function CheckoutPage({ mode }: CheckoutPageProps) {
   );
 
   const close = useCallback(() => {
-    void checkoutApi.cancel(code).catch(() => undefined);
+    // Only an unfinished payment is worth cancelling; a settled one would just
+    // be refused.
+    if (!announcedSuccess.current) {
+      void checkoutApi.cancel(code).catch(() => undefined);
+    }
     bridge.close();
     if (!embedded && session?.cancelUrl) {
       window.location.assign(session.cancelUrl);
